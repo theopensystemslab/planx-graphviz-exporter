@@ -3,28 +3,48 @@ const fs = require("fs").promises;
 const axios = require("axios");
 const { random } = require("@ctrl/tinycolor");
 
-async function getData(url) {
-  const filename = "data.json";
+async function getData(localAuthority) {
+  const filename = `in/${localAuthority}.json`;
   try {
+    // check if file has been downloaded already
     const file = await fs.readFile(filename);
     return JSON.parse(file);
   } catch (e) {
-    const { data } = await axios.get(url);
+    // if not, download and save it
+    const { data } = await axios.get(
+      `https://data.planx.in/${localAuthority}.json`
+    );
     await fs.writeFile(filename, JSON.stringify(data));
     return data;
   }
 }
 
-const opts = {
+const types = {
   100: {
+    // question
     shape: "box",
   },
-  200: {},
-  300: {},
+  200: {
+    // response
+  },
+  300: {
+    // portal / group
+  },
 };
 
-async function makeGraph() {
-  const flow = await getData("https://data.planx.in/southwark.json");
+function generate(g, localAuthority, filetype) {
+  return new Promise(function (res, rej) {
+    const file = `out/${localAuthority}.${filetype}`;
+    console.log(`generating ${file}...`);
+    g.output(filetype, file, function (err) {
+      if (err) rej(err);
+      res();
+    });
+  });
+}
+
+async function makeGraph(localAuthority) {
+  const flow = await getData(localAuthority);
 
   const g = graphviz.digraph("G");
 
@@ -37,18 +57,17 @@ async function makeGraph() {
       const color = flow.nodes[src] ? colors[src].toHexString() : undefined;
 
       const label = flow.nodes[id] ? flow.nodes[id].text : undefined;
-      const extras = flow.nodes[id] ? opts[flow.nodes[id].$t] : undefined;
+      const extras = flow.nodes[id] ? types[flow.nodes[id].$t] : undefined;
 
       g.addNode(id || "null", { label, color, ...extras });
     });
     g.addEdge(src || "null", tgt, { color: colors[src].toHexString() });
   });
 
-  console.log("generating graph.pdf...");
-  g.output("pdf", "graph.pdf");
-
-  console.log("generating graph.svg...");
-  g.output("svg", "graph.svg");
+  await Promise.all([
+    generate(g, localAuthority, "pdf"),
+    generate(g, localAuthority, "svg"),
+  ]);
 }
 
-makeGraph();
+makeGraph("southwark");
